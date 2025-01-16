@@ -1,8 +1,18 @@
-# nodejs
-A minimal Node.js web application.
+# O-Lab IA API
 
-![static-site](public/images/static-site.png)
+Esta API backend centraliza y orquesta los servicios de IA integrando la Assistants API de OpenAI. Permite que aplicaciones web, móviles y LMS interactúen con un Assistant para generar respuestas automatizadas.
 
-For a step-by-step guide to deploying on [Railway](https://railway.app/?referralCode=alphasec), see [this](https://alphasec.io/how-to-deploy-a-nodejs-app-on-railway/) post, or click the button below.
+## 🚀 Características
 
-[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template/Abo1zu?referralCode=alphasec)
+- **Framework**: Fastify
+- **Rate Limiting**: Protege contra abusos (10 solicitudes por minuto).
+- **CORS**: Permite solicitudes desde cualquier origen.
+- **Assistants API**: Interactúa con la Assistants API de OpenAI.
+
+## 📦 Instalación
+
+1. Clona el repositorio:
+   ```bash
+   git clone <url-repo>
+   cd olab-ia-api
+   ```
