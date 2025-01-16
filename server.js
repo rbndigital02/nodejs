@@ -153,8 +153,8 @@ fastify.post('/api/assistants/message', async (request, reply) => {
 // Iniciar el servidor
 const start = async () => {
   try {
-    await fastify.listen({ port: process.env.PORT || 3000, host: '192.168.1.37' });
-    fastify.log.info(`Servidor corriendo en http://192.168.1.37:${process.env.PORT || 3000}`);
+    await fastify.listen({ port: process.env.PORT || 3000, host: 'nodejs-production-3a7c.up.railway.app' });
+    fastify.log.info(`Servidor corriendo en https://nodejs-production-3a7c.up.railway.app:${process.env.PORT || 3000}`);
   } catch (err) {
     fastify.log.error(err);
     process.exit(1);
