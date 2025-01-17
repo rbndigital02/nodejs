@@ -13,13 +13,6 @@ const fastify = require('fastify')({
 });
 
 // Plugins
-fastify.register(require('@fastify/cors'), { 
-  origin: true,
-  methods: ['GET', 'PUT', 'POST', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key'],
-  credentials: true
-});
-
 fastify.register(require('@fastify/rate-limit'), {
   max: 100,
   timeWindow: '1 minute',
