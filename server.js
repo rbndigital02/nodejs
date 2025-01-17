@@ -154,7 +154,7 @@ fastify.post('/api/assistants/message', async (request, reply) => {
 const start = async () => {
   try {
     await fastify.listen({ port: process.env.PORT || 3000, host: '0.0.0.0' });
-    fastify.log.info(`Servidor corriendo en https://nodejs-production-3a7c.up.railway.app:${process.env.PORT || 3000}`);
+    fastify.log.info(`Servidor corriendo en PORT: ${process.env.PORT || 3000}`);
   } catch (err) {
     fastify.log.error(err);
     process.exit(1);
