@@ -119,64 +119,157 @@ fastify.post('/api/assistants/message', async (request, reply) => {
   try {
     const { assistantId, user_input } = request.body;
 
+    // Validación básica
     if (!user_input || !assistantId) {
-      return reply.status(400).send({ error: 'assistantId y user_input son requeridos.' });
+      return reply.status(400).send({ 
+        error: 'Datos inválidos', 
+        details: 'assistantId y user_input son requeridos.' 
+      });
     }
 
-    // Crear un nuevo thread
-    const thread = await openai.beta.threads.create();
+    // Validar formato del assistantId
+    if (!assistantId.startsWith('asst_')) {
+      return reply.status(400).send({ 
+        error: 'ID de asistente inválido', 
+        details: 'El ID del asistente debe comenzar con "asst_"' 
+      });
+    }
 
-    // Añadir mensaje del usuario al thread
-    await openai.beta.threads.messages.create(thread.id, {
-      role: 'user',
-      content: user_input,
-    });
-
-    // Iniciar la ejecución del assistant
-    const run = await openai.beta.threads.runs.create(thread.id, {
-      assistant_id: assistantId,
-    });
-
-    // Polling para verificar estado
-    let runStatus = await openai.beta.threads.runs.retrieve(thread.id, run.id);
-    const startTime = Date.now();
-    const TIMEOUT = 30000; // 30 segundos de timeout
-
-    while (['in_progress', 'queued'].includes(runStatus.status)) {
-      if (Date.now() - startTime > TIMEOUT) {
-        throw new Error('Timeout esperando respuesta del asistente');
+    // Verificar si el asistente existe
+    try {
+      await openai.beta.assistants.retrieve(assistantId);
+    } catch (error) {
+      if (error.status === 404) {
+        return reply.status(404).send({ 
+          error: 'Asistente no encontrado', 
+          details: 'El ID del asistente proporcionado no existe' 
+        });
       }
+      throw error;
+    }
+
+    // Crear un nuevo thread y manejar el mensaje
+    let thread;
+    try {
+      thread = await openai.beta.threads.create();
       
-      console.log('Run en progreso... Estado:', runStatus.status);
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      // Añadir mensaje del usuario al thread
+      await openai.beta.threads.messages.create(thread.id, {
+        role: 'user',
+        content: user_input,
+      });
+    } catch (error) {
+      console.error('Error creando thread:', error);
+      return reply.status(500).send({ 
+        error: 'Error al iniciar la conversación', 
+        details: error.message 
+      });
+    }
+
+    // Iniciar la ejecución del assistant con manejo de errores
+    let run;
+    try {
+      run = await openai.beta.threads.runs.create(thread.id, {
+        assistant_id: assistantId
+      });
+    } catch (error) {
+      console.error('Error iniciando run:', error);
+      return reply.status(500).send({ 
+        error: 'Error al procesar la solicitud', 
+        details: error.message 
+      });
+    }
+
+    // Polling para verificar estado con mejor manejo de errores
+    let runStatus;
+    const startTime = Date.now();
+    const TIMEOUT = 60000; // aumentado a 60 segundos para dar más tiempo a las herramientas
+    const MAX_RETRIES = 3;
+    let retryCount = 0;
+
+    try {
       runStatus = await openai.beta.threads.runs.retrieve(thread.id, run.id);
 
-      // Manejar herramientas si son requeridas
-      if (runStatus.status === 'requires_action' && runStatus.required_action?.submit_tool_outputs?.tool_calls) {
-        const toolCalls = runStatus.required_action.submit_tool_outputs.tool_calls;
-        const toolOutputs = await handleToolCalls(toolCalls);
-        await submitToolOutputs(thread.id, run.id, process.env.OPENAI_API_KEY, toolOutputs);
+      while (['in_progress', 'queued'].includes(runStatus.status)) {
+        if (Date.now() - startTime > TIMEOUT) {
+          throw new Error('Timeout esperando respuesta del asistente');
+        }
         
-        // Continuar polling después de submit
-        runStatus = await openai.beta.threads.runs.retrieve(thread.id, run.id);
+        console.log('Run en progreso... Estado:', runStatus.status);
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        
+        try {
+          runStatus = await openai.beta.threads.runs.retrieve(thread.id, run.id);
+        } catch (error) {
+          retryCount++;
+          if (retryCount > MAX_RETRIES) throw error;
+          console.warn(`Error en intento ${retryCount}, reintentando...`);
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          continue;
+        }
+
+        // Manejar herramientas si son requeridas
+        if (runStatus.status === 'requires_action' && runStatus.required_action?.submit_tool_outputs?.tool_calls) {
+          try {
+            const toolCalls = runStatus.required_action.submit_tool_outputs.tool_calls;
+            const toolOutputs = await handleToolCalls(toolCalls);
+            await submitToolOutputs(thread.id, run.id, process.env.OPENAI_API_KEY, toolOutputs);
+            runStatus = await openai.beta.threads.runs.retrieve(thread.id, run.id);
+          } catch (error) {
+            console.error('Error procesando herramientas:', error);
+            throw new Error('Error al procesar las herramientas del asistente');
+          }
+        }
       }
+
+      if (runStatus.status === 'failed') {
+        throw new Error(`Run falló: ${runStatus.last_error?.message || 'Error desconocido'}`);
+      }
+
+      if (runStatus.status !== 'completed') {
+        throw new Error(`Estado inesperado: ${runStatus.status}`);
+      }
+
+      // Recuperar mensajes de respuesta con mejor manejo
+      const messages = await openai.beta.threads.messages.list(thread.id);
+      const assistantMessages = messages.data.filter(msg => msg.role === 'assistant');
+      
+      if (assistantMessages.length === 0) {
+        throw new Error('No se encontró respuesta del asistente');
+      }
+
+      const botReply = assistantMessages
+        .map(msg => msg.content
+          .filter(content => content.type === 'text')
+          .map(content => content.text?.value || '')
+          .join('\n')
+        )
+        .join('\n')
+        .trim();
+
+      if (!botReply) {
+        throw new Error('Respuesta del asistente vacía');
+      }
+
+      reply.send({ reply: botReply });
+
+    } catch (error) {
+      console.error('Error en el proceso:', error);
+      
+      // Intentar cancelar el run si hubo un error
+      try {
+        if (run?.id) {
+          await openai.beta.threads.runs.cancel(thread.id, run.id);
+        }
+      } catch (cancelError) {
+        console.warn('Error cancelando run:', cancelError);
+      }
+
+      return reply.status(500).send({ 
+        error: 'Error procesando la solicitud', 
+        details: error.message 
+      });
     }
-
-    if (runStatus.status !== 'completed') {
-      console.error('Run no completó correctamente.');
-      console.error('Run status:', runStatus.status);
-      console.error('Run details:', JSON.stringify(runStatus, null, 2));
-      throw new Error('El proceso no completó correctamente.');
-    }
-
-    // Recuperar mensajes de respuesta
-    const messages = await openai.beta.threads.messages.list(thread.id);
-    const botReply = messages.data
-      .filter((msg) => msg.role === 'assistant')
-      .map((msg) => msg.content[0]?.text?.value || '')
-      .join('\n');
-
-    reply.send({ reply: botReply });
   } catch (error) {
     console.error('Error en /api/assistants/message', error);
     reply.status(500).send({ error: 'Error al procesar la solicitud.', details: error.message });
