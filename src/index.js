@@ -14,7 +14,7 @@ const fastify = require('fastify')({
 
 // Plugins
 fastify.register(require('@fastify/cors'), { 
-  origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
+  origin: true,
   methods: ['GET', 'PUT', 'POST', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key'],
   credentials: true
